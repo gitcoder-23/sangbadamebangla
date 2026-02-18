@@ -12,93 +12,71 @@ class AppWebview extends StatefulWidget {
 }
 
 class _AppWebviewState extends State<AppWebview> {
-  // Function to show the exit confirmation dialog
-  Future<bool> _showExitDialog(BuildContext context) async {
-    return await showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(15),
-            ),
-            title: const Text(
-              'Exit App',
-              style: TextStyle(color: Colors.black, fontSize: 20),
-            ),
-            content: const Text('Do you want to close the app?'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text(
-                  'Cancel',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(
-                    0xFFD32F2F,
-                  ), // Matching brand red
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                onPressed: () =>
-                    SystemNavigator.pop(), // Closes the app completely
-                child: const Text('Yes', style: TextStyle(color: Colors.white)),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+  late final WebViewController _controller;
+  DateTime? _lastPressedAt; // Tracks the time of the last back press
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize controller once in initState
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.white)
+      ..loadRequest(Uri.parse(widget.url ?? ''));
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.url!.isEmpty) {
+    if (widget.url == null || widget.url!.isEmpty) {
       return Scaffold(
         appBar: AppBar(
-          title: Text(
-            'Error',
-            style: TextStyle(color: Colors.white, fontSize: 20),
-          ),
+          title: const Text('Error', style: TextStyle(color: Colors.white)),
           backgroundColor: Colors.black87,
-          centerTitle: true,
-          shadowColor: Colors.transparent,
-          elevation: 0,
         ),
         body: const Center(child: Text('Invalid URL')),
       );
     }
 
-    WebViewController controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.white)
-      ..loadRequest(Uri.parse(widget.url!));
-
     return PopScope(
-      canPop: false, // Prevents automatic back navigation
+      canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        await _showExitDialog(context);
+
+        // 1. Check if the WebView can go back internally
+        if (await _controller.canGoBack()) {
+          _controller.goBack();
+          return;
+        }
+
+        // 2. Logic for Double Tap to Exit
+        final now = DateTime.now();
+        final backButtonHasNotBeenPressedOrTimeHasExpired =
+            _lastPressedAt == null ||
+            now.difference(_lastPressedAt!) > const Duration(seconds: 2);
+
+        if (backButtonHasNotBeenPressedOrTimeHasExpired) {
+          _lastPressedAt = now;
+
+          // Show the Toast/SnackBar
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Please double tap to exit.',
+                textAlign: TextAlign.center,
+              ),
+              duration: Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+              margin: EdgeInsets.symmetric(horizontal: 50, vertical: 20),
+              shape: StadiumBorder(),
+            ),
+          );
+        } else {
+          // If pressed again within 2 seconds, close the app
+          SystemNavigator.pop();
+        }
       },
       child: Scaffold(
-        // appBar: AppBar(
-        //   title: Text(
-        //     widget.name!,
-        //     style: TextStyle(color: Colors.white, fontSize: 20),
-        //   ),
-        //   backgroundColor: Colors.black87,
-        //   centerTitle: true,
-        //   shadowColor: Colors.transparent,
-        //   elevation: 0,
-        // ),
-        body: SafeArea(
-          child: Builder(
-            builder: (BuildContext context) {
-              return WebViewWidget(controller: controller);
-            },
-          ),
-        ),
+        body: SafeArea(child: WebViewWidget(controller: _controller)),
       ),
     );
   }
